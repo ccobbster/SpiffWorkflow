@@ -13,7 +13,13 @@
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
+import logging
+
 from SpiffWorkflow.specs.TaskSpec import TaskSpec
+from SpiffWorkflow.util import merge_dictionary  # make available to callers
+
+LOG = logging.getLogger(__name__)
+
 
 
 class Transform(TaskSpec):
@@ -46,8 +52,10 @@ class Transform(TaskSpec):
     def _on_complete_hook(self, my_task):
         if self.transforms:
             for transform in self.transforms:
+                LOG.debug("Executing transform", extra=dict(data=transform))
                 exec(transform)
-        return TaskSpec._on_complete_hook(self, my_task)
+        result = super(Transform, self)._update_state_hook(my_task)
+        return result
 
     def serialize(self, serializer):
         s_state = serializer._serialize_simple(self)

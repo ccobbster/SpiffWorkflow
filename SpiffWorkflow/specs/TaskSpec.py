@@ -86,19 +86,22 @@ class TaskSpec(object):
         """
         assert parent is not None
         assert name   is not None
+        if __debug__:
+            from SpiffWorkflow.specs import WorkflowSpec  # Can't import above
+            assert isinstance(parent, WorkflowSpec)
         self._parent     = parent
         self.id          = None
         self.name        = str(name)
-        self.description = kwargs.get('description', '')
+        self.description = kwargs.pop('description', '')
         self.inputs      = []
         self.outputs     = []
         self.manual      = False
         self.internal    = False  # Only for easing debugging.
-        self.properties  = kwargs.get('properties',  {})
-        self.defines     = kwargs.get('defines',     {})
-        self.pre_assign  = kwargs.get('pre_assign',  [])
-        self.post_assign = kwargs.get('post_assign', [])
-        self.locks       = kwargs.get('lock',        [])
+        self.properties  = kwargs.pop('properties',  {})
+        self.defines     = kwargs.pop('defines',     {})
+        self.pre_assign  = kwargs.pop('pre_assign',  [])
+        self.post_assign = kwargs.pop('post_assign', [])
+        self.locks       = kwargs.pop('lock',        [])
         self.lookahead   = 2  # Maximum number of MAYBE predictions.
 
         # Events.
@@ -121,6 +124,19 @@ class TaskSpec(object):
         @param taskspec: The task by which this method is executed.
         """
         self.inputs.append(taskspec)
+
+    def ancestors(self):
+        """Returns list of ancestor task specs based on inputs"""
+        results = []
+
+        def recursive_find_ancestors(task, stack):
+            for input in task.inputs:
+                if input not in stack:
+                    stack.append(input)
+                    recursive_find_ancestors(input, stack)
+        recursive_find_ancestors(self, results)
+
+        return results
 
     def _get_activated_tasks(self, my_task, destination):
         """
@@ -153,7 +169,7 @@ class TaskSpec(object):
         for key in kwargs:
             if key in self.defines:
                 msg = "Property %s can not be modified" % key
-                raise WorkflowException(msg)
+                raise WorkflowException(self, msg)
         self.properties.update(kwargs)
 
     def get_property(self, name, default=None):
@@ -178,6 +194,20 @@ class TaskSpec(object):
         """
         self.outputs.append(taskspec)
         taskspec._connect_notify(self)
+
+    def follow(self, taskspec):
+        """
+        Make this task follow the provided one. In other words, this task is
+        added to the given task outputs.
+
+        This is an alias to connect, just easier to understand when reading
+        code - ex: my_task.follow(the_other_task)
+        Adding it after being confused by .connect one times too many!
+
+        @type  taskspec: TaskSpec
+        @param taskspec: The task to follow.
+        """
+        taskspec.connect(self)
 
     def test(self):
         """

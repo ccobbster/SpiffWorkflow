@@ -4,16 +4,20 @@
 # modify it under the terms of the GNU Lesser General Public
 # License as published by the Free Software Foundation; either
 # version 2.1 of the License, or (at your option) any later version.
-# 
+#
 # This library is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 # Lesser General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+import logging
 import re
+
+LOG = logging.getLogger(__name__)
+
 
 class Attrib(object):
     """
@@ -44,7 +48,40 @@ class Attrib(object):
         @rtype:  object
         @return: The serialized object.
         """
-        return serializer._deserialize_attrib(self, s_state)
+        return serializer._deserialize_attrib(cls, s_state)
+
+
+class PathAttrib(object):
+    """
+    Used for marking a value such that it is recognized to be an
+    attribute obtained by evaluating a path by valueof().
+    """
+    def __init__(self, path):
+        self.path = path
+
+    def serialize(self, serializer):
+        """
+        Serializes the instance using the provided serializer.
+
+        @type  serializer: L{SpiffWorkflow.storage.Serializer}
+        @param serializer: The serializer to use.
+        @rtype:  object
+        @return: The serialized object.
+        """
+        return serializer._serialize_pathattrib(self)
+
+    @classmethod
+    def deserialize(cls, serializer, s_state):
+        """
+        Serializes the instance using the provided serializer.
+
+        @type  serializer: L{SpiffWorkflow.storage.Serializer}
+        @param serializer: The serializer to use.
+        @rtype:  object
+        @return: The serialized object.
+        """
+        return serializer._deserialize_pathattrib(cls, s_state)
+
 
 class Assign(object):
     """
@@ -54,8 +91,8 @@ class Assign(object):
 
     def __init__(self,
                  left_attribute,
-                 right_attribute = None,
-                 right = None,
+                 right_attribute=None,
+                 right=None,
                  **kwargs):
         """
         Constructor.
@@ -76,9 +113,9 @@ class Assign(object):
         if not right_attribute and not right:
             raise ValueError('require argument: right_attribute or right')
         assert left_attribute is not None
-        self.left_attribute  = left_attribute
+        self.left_attribute = left_attribute
         self.right_attribute = right_attribute
-        self.right           = right
+        self.right = right
 
     def assign(self, from_obj, to_obj):
         # Fetch the value of the right expression.
@@ -88,13 +125,31 @@ class Assign(object):
             right = from_obj.get_attribute(self.right_attribute)
         to_obj.set_attribute(**{str(self.left_attribute): right})
 
+
 def valueof(scope, op):
     if op is None:
         return None
     elif isinstance(op, Attrib):
+        if op.name not in scope.attributes:
+            LOG.debug("Attrib('%s') not present in task '%s' attributes" %
+                    (op.name, scope.get_name()))
         return scope.get_attribute(op.name)
+    elif isinstance(op, PathAttrib):
+        if not op.path:
+            return None
+        parts = op.path.split('/')
+        data = scope.attributes
+        for part in parts:
+            if part not in data:
+                LOG.debug("PathAttrib('%s') not present in task '%s' "
+                        "attributes" % (op.path, scope.get_name()),
+                        extra=dict(data=scope.attributes))
+                return None
+            data = data[part]  # move down the path
+        return data
     else:
         return op
+
 
 class Operator(object):
     """
@@ -106,7 +161,7 @@ class Operator(object):
         Constructor.
         """
         if len(args) == 0:
-            raise TypeException("Too few arguments")
+            raise TypeError("Too few arguments")
         self.args = args
 
     def _get_values(self, task):
@@ -141,13 +196,14 @@ class Operator(object):
         """
         return serializer._deserialize_operator(s_state)
 
+
 class Equal(Operator):
     """
     This class represents the EQUAL operator.
     """
     def _matches(self, task):
         values = self._get_values(task)
-        last   = values[0]
+        last = values[0]
         for value in values:
             if value != last:
                 return False
@@ -161,13 +217,14 @@ class Equal(Operator):
     def deserialize(cls, serializer, s_state):
         return serializer._deserialize_operator_equal(s_state)
 
+
 class NotEqual(Operator):
     """
     This class represents the NOT EQUAL operator.
     """
     def _matches(self, task):
         values = self._get_values(task)
-        last   = values[0]
+        last = values[0]
         for value in values:
             if value != last:
                 return True
@@ -180,6 +237,7 @@ class NotEqual(Operator):
     @classmethod
     def deserialize(cls, serializer, s_state):
         return serializer._deserialize_operator_not_equal(s_state)
+
 
 class GreaterThan(Operator):
     """
@@ -202,6 +260,7 @@ class GreaterThan(Operator):
     def deserialize(cls, serializer, s_state):
         return serializer._deserialize_operator_greater_than(s_state)
 
+
 class LessThan(Operator):
     """
     This class represents the LESS THAN operator.
@@ -222,6 +281,7 @@ class LessThan(Operator):
     @classmethod
     def deserialize(cls, serializer, s_state):
         return serializer._deserialize_operator_less_than(s_state)
+
 
 class Match(Operator):
     """
